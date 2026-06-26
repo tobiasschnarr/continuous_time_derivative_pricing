@@ -1,6 +1,6 @@
 # Continuous-Time Derivative Pricing, 2026
 
-This repository contains the code for the 2026 assignment of the course Continuous-Time Derivative Pricing. If you encounter any questions regarding the setup, please feel free to reach out to me via email at X. 
+This repository contains the code for the 2026 assignment of the course Continuous-Time Derivative Pricing. If you encounter any questions regarding the setup, please feel free to reach out to me via email at . 
 
 ## Setup
 
