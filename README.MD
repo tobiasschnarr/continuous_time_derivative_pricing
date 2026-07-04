@@ -44,6 +44,10 @@ ctdp/
 │   ├── asml_express.csv                            <--- Express Plus Certificate, WKN HV4YPG / ISIN DE000HV4YPG2
 │   └── asml.csv                                    <--- ASML Holding N.V., WKN A1J4U4 / ISIN NL0010273215
 │
+├── docs/                                           <--- Reference documents and product specifications
+│   ├── FT_de_DE000HV4YPG2.pdf                      <--- Final Terms, WKN HV4YPG / ISIN DE000HV4YPG2
+│   └── KID_DE000HV4YPG2.pdf                        <--- Key Information Document, WKN HV4YPG / ISIN DE000HV4YPG2
+│
 ├── svensson_params/                                <--- Contains the Svensson yield-curve parameters
 │
 ├── figs/                                           <--- Figures generated for the poster

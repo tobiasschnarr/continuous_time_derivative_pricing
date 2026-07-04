@@ -22,6 +22,97 @@ def risk_metrics(returns):
     }
 
 
+def terminal_dividend_cash(
+    stock_paths,
+    n_shares,
+    risk_free_rate,
+    dividend_yield,
+    dt,
+):
+    """
+    Terminal value of dividends from a constant share holding.
+
+    The path matrix contains ex-dividend stock prices. Dividends over each
+    interval use the beginning-of-interval stock price and are accumulated at
+    the risk-free rate until maturity.
+    """
+    stock_paths = np.asarray(stock_paths, dtype=float)
+
+    if stock_paths.ndim != 2 or stock_paths.shape[1] < 2:
+        raise ValueError("stock_paths must be a 2D array with at least two columns.")
+
+    if not np.all(np.isfinite(stock_paths)):
+        raise ValueError("stock_paths must contain only finite values.")
+
+    if np.any(stock_paths < 0):
+        raise ValueError("stock_paths must be non-negative.")
+
+    n_shares = np.asarray(n_shares, dtype=float)
+
+    if n_shares.ndim == 0:
+        shares = n_shares
+    elif n_shares.shape == (stock_paths.shape[0],):
+        shares = n_shares[:, None]
+    else:
+        raise ValueError("n_shares must be scalar or have one value per path.")
+
+    if not np.all(np.isfinite(n_shares)):
+        raise ValueError("n_shares must contain only finite values.")
+
+    if np.any(n_shares < 0):
+        raise ValueError("n_shares must be non-negative.")
+
+    if not np.isfinite(risk_free_rate):
+        raise ValueError("risk_free_rate must be finite.")
+
+    if not np.isfinite(dividend_yield) or dividend_yield < 0:
+        raise ValueError("dividend_yield must be finite and non-negative.")
+
+    if not np.isfinite(dt) or dt <= 0:
+        raise ValueError("dt must be finite and positive.")
+
+    n_intervals = stock_paths.shape[1] - 1
+    dividend_per_share = np.exp(dividend_yield * dt) - 1
+    accrual_factors = np.exp(
+        risk_free_rate
+        * dt
+        * np.arange(n_intervals - 1, -1, -1)
+    )
+
+    interval_dividends = (
+        shares
+        * stock_paths[:, :-1]
+        * dividend_per_share
+    )
+
+    return np.sum(interval_dividends * accrual_factors, axis=1)
+
+
+def manual_constant_path_dividend_cash(
+    stock_price,
+    n_shares,
+    n_intervals,
+    risk_free_rate,
+    dividend_yield,
+    dt,
+):
+    """
+    Manually compound dividend cash for a constant stock path.
+    """
+    dividend_cash = 0.0
+
+    for _ in range(n_intervals):
+        dividend_cash = (
+            dividend_cash
+            * np.exp(risk_free_rate * dt)
+            + n_shares
+            * stock_price
+            * (np.exp(dividend_yield * dt) - 1)
+        )
+
+    return dividend_cash
+
+
 def black_scholes_put(S0, K, r, sigma, T, *, dividend_yield):
     """
     Price a European put option using the Black-Scholes formula.
@@ -44,7 +135,7 @@ def black_scholes_put(S0, K, r, sigma, T, *, dividend_yield):
 
 
 def evaluate_put_insurance_strategy(
-    S_T,
+    stock_paths,
     put_budget_fraction,
     strike_moneyness,
     S0,
@@ -54,10 +145,18 @@ def evaluate_put_insurance_strategy(
     T,
     *,
     dividend_yield,
+    dt,
+    dividend_cash_per_share=None,
 ):
     """
-    Evaluate a put-insurance strategy for a given terminal stock distribution.
+    Evaluate a put-insurance strategy for a given stock-price path matrix.
     """
+    stock_paths = np.asarray(stock_paths, dtype=float)
+
+    if stock_paths.ndim != 2 or stock_paths.shape[1] < 2:
+        raise ValueError("stock_paths must be a 2D array with at least two columns.")
+
+    S_T = stock_paths[:, -1]
     K = strike_moneyness * S0
 
     put_price = black_scholes_put(
@@ -93,6 +192,28 @@ def evaluate_put_insurance_strategy(
         * S_T
     )
 
+    if dividend_cash_per_share is None:
+        dividend_cash = terminal_dividend_cash(
+            stock_paths=stock_paths,
+            n_shares=n_shares,
+            risk_free_rate=r,
+            dividend_yield=dividend_yield,
+            dt=dt,
+        )
+    else:
+        dividend_cash_per_share = np.asarray(dividend_cash_per_share, dtype=float)
+
+        if dividend_cash_per_share.shape != S_T.shape:
+            raise ValueError("dividend_cash_per_share must have one value per path.")
+
+        if not np.all(np.isfinite(dividend_cash_per_share)):
+            raise ValueError("dividend_cash_per_share must contain only finite values.")
+
+        if np.any(dividend_cash_per_share < 0):
+            raise ValueError("dividend_cash_per_share must be non-negative.")
+
+        dividend_cash = n_shares * dividend_cash_per_share
+
     put_leg = (
         n_puts
         * np.maximum(K - S_T, 0)
@@ -100,6 +221,7 @@ def evaluate_put_insurance_strategy(
 
     terminal_wealth = (
         equity_leg
+        + dividend_cash
         + put_leg
     )
 
@@ -114,4 +236,6 @@ def evaluate_put_insurance_strategy(
         "put_price": put_price,
         "n_shares": n_shares,
         "n_puts": n_puts,
+        "avg_dividend_cash": dividend_cash.mean(),
+        "avg_dividend_return": dividend_cash.mean() / initial_capital,
     }
