@@ -39,7 +39,15 @@ def idx_of(date, today, params):
     return int(np.ceil((date - today).days * params["STEPS_PER_DAY"]))
 
 
-def price_express_certificate_one_day(spot, sigma, val_date, r_vec, params):
+def price_express_certificate_one_day(
+    spot,
+    sigma,
+    val_date,
+    r_vec,
+    params,
+    *,
+    dividend_yield,
+):
     """
     Value the UniCredit ASML Express Plus Certificate using a binomial tree.
 
@@ -52,6 +60,9 @@ def price_express_certificate_one_day(spot, sigma, val_date, r_vec, params):
     """
     dt = 1 / params["TRADING_DAYS"]
 
+    if not np.isfinite(dividend_yield):
+        raise ValueError("dividend_yield must be finite.")
+
     # Tree ends at the final observation date, because the ASML price relevant
     # for the final payoff is fixed there.
     n_steps = idx_of(params["FINAL_OBS_DATE"], val_date, params)
@@ -60,7 +71,7 @@ def price_express_certificate_one_day(spot, sigma, val_date, r_vec, params):
         return np.nan
 
     u = np.exp(sigma * np.sqrt(dt))
-    d = 1 / u
+    d = np.exp(-sigma * np.sqrt(dt))
 
     # Map early observation dates to tree indices
     obs_idx = {}
@@ -117,18 +128,20 @@ def price_express_certificate_one_day(spot, sigma, val_date, r_vec, params):
     for i in range(n_steps - 1, -1, -1):
         r_i = r_vec[min(i, len(r_vec) - 1)]
         disc_i = np.exp(-r_i * dt)
-        q_i = (np.exp(r_i * dt) - d) / (u - d)
+        p_up = (np.exp((r_i - dividend_yield) * dt) - d) / (u - d)
 
-        if not np.isfinite(q_i) or q_i < 0 or q_i > 1:
+        if not np.isfinite(p_up) or p_up < 0 or p_up > 1:
             raise ValueError(
-                f"Invalid risk-neutral probability q={q_i:.4f} at step {i}. "
-                f"r={r_i:.6f}, sigma={sigma:.6f}, u={u:.6f}, d={d:.6f}"
+                f"Invalid risk-neutral probability p_up={p_up:.6f} "
+                f"at step {i}. r={r_i:.6f}, "
+                f"dividend_yield={dividend_yield:.6f}, "
+                f"sigma={sigma:.6f}, dt={dt:.8f}, u={u:.6f}, d={d:.6f}"
             )
 
         for j in range(i + 1):
             continuation = disc_i * (
-                q_i * value[i + 1][j + 1]
-                + (1 - q_i) * value[i + 1][j]
+                p_up * value[i + 1][j + 1]
+                + (1 - p_up) * value[i + 1][j]
             )
 
             if i in obs_idx and stock[i][j] >= obs_idx[i]["level"]:
@@ -167,6 +180,8 @@ def price_and_greeks(
     val_date,
     r_vec,
     params,
+    *,
+    dividend_yield,
     spot_bump_pct=0.01,
     vega_bump=0.01,
 ):
@@ -184,6 +199,7 @@ def price_and_greeks(
         val_date=val_date,
         r_vec=r_vec,
         params=params,
+        dividend_yield=dividend_yield,
     )
 
     price_up = price_express_certificate_one_day(
@@ -192,6 +208,7 @@ def price_and_greeks(
         val_date=val_date,
         r_vec=r_vec,
         params=params,
+        dividend_yield=dividend_yield,
     )
 
     price_down = price_express_certificate_one_day(
@@ -200,6 +217,7 @@ def price_and_greeks(
         val_date=val_date,
         r_vec=r_vec,
         params=params,
+        dividend_yield=dividend_yield,
     )
 
     delta = (price_up - price_down) / (2 * spot_bump)
@@ -216,6 +234,7 @@ def price_and_greeks(
         val_date=val_date,
         r_vec=r_vec,
         params=params,
+        dividend_yield=dividend_yield,
     )
 
     price_vol_down = price_express_certificate_one_day(
@@ -224,6 +243,7 @@ def price_and_greeks(
         val_date=val_date,
         r_vec=r_vec,
         params=params,
+        dividend_yield=dividend_yield,
     )
 
     # Vega per 1 volatility point, e.g. sigma + 0.01
@@ -238,6 +258,8 @@ def price_and_extended_greeks(
     val_date,
     r_vec,
     params,
+    *,
+    dividend_yield,
     spot_bump_pct=0.005,
     vega_bump=0.005,
     rho_bump=0.0001,
@@ -254,15 +276,30 @@ def price_and_extended_greeks(
     spot_bump = spot * spot_bump_pct
 
     price = price_express_certificate_one_day(
-        spot, sigma, val_date, r_vec, params
+        spot=spot,
+        sigma=sigma,
+        val_date=val_date,
+        r_vec=r_vec,
+        params=params,
+        dividend_yield=dividend_yield,
     )
 
     # Delta and Gamma
     price_spot_up = price_express_certificate_one_day(
-        spot + spot_bump, sigma, val_date, r_vec, params
+        spot=spot + spot_bump,
+        sigma=sigma,
+        val_date=val_date,
+        r_vec=r_vec,
+        params=params,
+        dividend_yield=dividend_yield,
     )
     price_spot_down = price_express_certificate_one_day(
-        spot - spot_bump, sigma, val_date, r_vec, params
+        spot=spot - spot_bump,
+        sigma=sigma,
+        val_date=val_date,
+        r_vec=r_vec,
+        params=params,
+        dividend_yield=dividend_yield,
     )
 
     delta = (price_spot_up - price_spot_down) / (2 * spot_bump)
@@ -273,14 +310,20 @@ def price_and_extended_greeks(
 
     # Vega: per one volatility percentage point
     price_vol_up = price_express_certificate_one_day(
-        spot, sigma + vega_bump, val_date, r_vec, params
+        spot=spot,
+        sigma=sigma + vega_bump,
+        val_date=val_date,
+        r_vec=r_vec,
+        params=params,
+        dividend_yield=dividend_yield,
     )
     price_vol_down = price_express_certificate_one_day(
-        spot,
-        max(sigma - vega_bump, 1e-8),
-        val_date,
-        r_vec,
-        params,
+        spot=spot,
+        sigma=max(sigma - vega_bump, 1e-8),
+        val_date=val_date,
+        r_vec=r_vec,
+        params=params,
+        dividend_yield=dividend_yield,
     )
 
     vega = (
@@ -292,10 +335,20 @@ def price_and_extended_greeks(
     # Rho: parallel shift of the complete short-rate curve,
     # reported per one interest-rate percentage point
     price_rate_up = price_express_certificate_one_day(
-        spot, sigma, val_date, r_vec + rho_bump, params
+        spot=spot,
+        sigma=sigma,
+        val_date=val_date,
+        r_vec=r_vec + rho_bump,
+        params=params,
+        dividend_yield=dividend_yield,
     )
     price_rate_down = price_express_certificate_one_day(
-        spot, sigma, val_date, r_vec - rho_bump, params
+        spot=spot,
+        sigma=sigma,
+        val_date=val_date,
+        r_vec=r_vec - rho_bump,
+        params=params,
+        dividend_yield=dividend_yield,
     )
 
     rho = (
@@ -310,11 +363,12 @@ def price_and_extended_greeks(
     next_r_vec = r_vec[1:]
 
     next_day_price = price_express_certificate_one_day(
-        spot,
-        sigma,
-        next_val_date,
-        next_r_vec,
-        params,
+        spot=spot,
+        sigma=sigma,
+        val_date=next_val_date,
+        r_vec=next_r_vec,
+        params=params,
+        dividend_yield=dividend_yield,
     )
 
     theta = next_day_price - price

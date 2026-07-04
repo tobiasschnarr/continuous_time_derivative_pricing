@@ -22,13 +22,13 @@ def risk_metrics(returns):
     }
 
 
-def black_scholes_put(S0, K, r, sigma, T):
+def black_scholes_put(S0, K, r, sigma, T, *, dividend_yield):
     """
     Price a European put option using the Black-Scholes formula.
     """
     d1 = (
         np.log(S0 / K)
-        + (r + 0.5 * sigma**2) * T
+        + (r - dividend_yield + 0.5 * sigma**2) * T
     ) / (
         sigma * np.sqrt(T)
     )
@@ -37,7 +37,7 @@ def black_scholes_put(S0, K, r, sigma, T):
 
     put_price = (
         K * np.exp(-r * T) * norm.cdf(-d2)
-        - S0 * norm.cdf(-d1)
+        - S0 * np.exp(-dividend_yield * T) * norm.cdf(-d1)
     )
 
     return put_price
@@ -52,6 +52,8 @@ def evaluate_put_insurance_strategy(
     r,
     sigma_pricing,
     T,
+    *,
+    dividend_yield,
 ):
     """
     Evaluate a put-insurance strategy for a given terminal stock distribution.
@@ -64,6 +66,7 @@ def evaluate_put_insurance_strategy(
         r=r,
         sigma=sigma_pricing,
         T=T,
+        dividend_yield=dividend_yield,
     )
 
     equity_budget = (
